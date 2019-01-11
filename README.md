@@ -10,7 +10,7 @@ CPU miner for simpleChain in go
 * gcc
 
 ```
-go get XXXXX
+go get git.dev.tencent.com/baoquan2017/gominer
 ```
 
 ## Run
