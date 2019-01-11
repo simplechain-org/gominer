@@ -10,7 +10,7 @@ CPU miner for simpleChain in go
 * gcc
 
 ```
-go get git.dev.tencent.com/baoquan2017/gominer
+go get github.com/simplechain-org/gominer
 ```
 
 ## Run
@@ -29,15 +29,16 @@ Usage:
      help  Shows a list of commands or help for one command
      
   GLOBAL OPTIONS:
-     --stratumserver value  stratum server address,(host:port)
-     --minername value      miner name registered to the stratum server
-     --password value       password of stratum server if it's necessary
-     --minerthreads value   Number of CPU threads to use for mining (default: 8)
-     --verbosity value      Logging verbosity: 0=silent, 1=error, 2=warn, 3=info, 4=debug, 5=detail (default: 3) (default: 3)
-     --help, -h             show help
+     --server value     stratum server address,(host:port)
+     --name value       miner name registered to the stratum server (default: "qkl.lan")
+     --password value   stratum protocol password, default: no password
+     --cpu value        Sets the maximum number of CPUs that can be executing simultaneously (default: 8)
+     --threads value    Number of CPU threads to use for mining (default: 8)
+     --verbosity value  Logging verbosity: 0=silent, 1=error, 2=warn, 3=info, 4=debug, 5=detail (default: 3) (default: 3)
+     --help, -h         show help
 ```
 
 ##EXAMPLES
 ```
-./gominer --stratumserver host:port --minername x --password  x --minerthreads 2
+./gominer --server host:port --name x --password  x --threads 2
 ```
