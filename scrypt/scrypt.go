@@ -231,9 +231,6 @@ func Key(password, salt []byte, N, r, p, keyLen int, mode uint) ([]byte, error) 
 	for i := 0; i < p; i++ {
 		smix(b[i*128*r:], r, N, v, xy)
 	}
-
-	// 对应c代码 X[0] += (mode << 24);
-	// b为128个byte  X为32个uint32
 	b[3] += byte(mode)
 	return reverseArray(pbkdf2_Key(password, b, 1, keyLen, sha256.New)), nil
 }
