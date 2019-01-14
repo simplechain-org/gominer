@@ -26,8 +26,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/simplechain-org/go-simplechain/common/hexutil"
-	"github.com/simplechain-org/go-simplechain/crypto/sha3"
+	"github.com/simplechain-org/gominer/common/hexutil"
+	"github.com/simplechain-org/gominer/scrypt/sha3"
 )
 
 // Lengths of hashes and addresses in bytes.

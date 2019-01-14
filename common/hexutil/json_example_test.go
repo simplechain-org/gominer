@@ -20,7 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/simplechain-org/go-simplechain/common/hexutil"
+	"github.com/simplechain-org/gominer/common/hexutil"
 )
 
 type MyType [5]byte
