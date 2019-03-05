@@ -1,9 +1,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"github.com/mattn/go-colorable"
+	"github.com/rcrowley/go-metrics"
 	"github.com/simplechain-org/gominer/client"
 	"github.com/simplechain-org/gominer/common"
 	"github.com/simplechain-org/gominer/log"
@@ -30,9 +30,9 @@ var (
 		utils.Verbosity,
 	}
 
-	HashCount = make(chan uint64)
-	task      *client.StratumTask
-	job       = make(chan *Job, 100)
+	task  *client.StratumTask
+	job   = make(chan *Job, 100)
+	meter = metrics.NewMeter()
 )
 
 func init() {
@@ -81,8 +81,7 @@ func gominer(ctx *cli.Context) error {
 	log.Info("CPU", "number", runtime.NumCPU(), "using", CPUs)
 
 	c := client.NewStratumClient(ctx.GlobalString(utils.StratumServer.Name), ctx.GlobalString(utils.MinerName.Name), ctx.GlobalString(utils.StratumPassword.Name))
-	agentCtx, cancel := context.WithCancel(context.Background())
-	c.Start(agentCtx, cancel)
+	c.Start()
 	threads := ctx.GlobalInt(utils.MinerThreads.Name)
 	if threads == 0 {
 		threads = runtime.NumCPU()
@@ -94,28 +93,21 @@ func gominer(ctx *cli.Context) error {
 
 	found := make(chan uint64)
 
-	var taskBegin int64
-	var sum uint64
+	_ = metrics.Register("hashRate", meter)
 
 	for i := 0; i < threads; i++ {
 		go doJob(job, found)
 	}
 
-	taskBegin = time.Now().UnixNano()
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(15 * time.Second)
 	for {
 		select {
 		case <-c.Down:
 			log.Warn("miner ShutDown")
 			return nil
-		case t := <-HashCount:
-			sum += t
 		case _ = <-ticker.C:
-			if sum > 0 {
-				hashRate := float64(sum*1e9) / float64(time.Now().UnixNano()-taskBegin)
-				log.Info("Calculating ", "hashRate", hashRate)
-				log.Debug("Buffered jobs", "length", len(job))
-			}
+			log.Info("Calculating ", "hashRate", meter.RateMean())
+			log.Debug("Buffered jobs", "length", len(job))
 		case task = <-c.TaskChan:
 			target := new(big.Int).Div(maxUint256, task.Difficulty)
 			go func(target, diff *big.Int, begin, end uint64) {
@@ -158,11 +150,11 @@ func doJob(job <-chan *Job, found chan uint64) {
 			if intResult.Cmp(j.target) <= 0 {
 				go func() {
 					found <- j.nonce
-					//log.Info("doJob", "nonce", j.nonce,"pow", j.powHash)
+					log.Debug("Nonce success", "diff", j.nonce)
 				}()
 			}
 			go func() {
-				HashCount <- 1
+				meter.Mark(1)
 			}()
 		}
 	}
