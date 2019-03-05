@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/mattn/go-colorable"
 	"github.com/rcrowley/go-metrics"
@@ -81,7 +82,8 @@ func gominer(ctx *cli.Context) error {
 	log.Info("CPU", "number", runtime.NumCPU(), "using", CPUs)
 
 	c := client.NewStratumClient(ctx.GlobalString(utils.StratumServer.Name), ctx.GlobalString(utils.MinerName.Name), ctx.GlobalString(utils.StratumPassword.Name))
-	c.Start()
+	serverCtx, cancel := context.WithCancel(context.Background())
+	c.Start(serverCtx, cancel)
 	threads := ctx.GlobalInt(utils.MinerThreads.Name)
 	if threads == 0 {
 		threads = runtime.NumCPU()
@@ -110,13 +112,14 @@ func gominer(ctx *cli.Context) error {
 			log.Debug("Buffered jobs", "length", len(job))
 		case task = <-c.TaskChan:
 			target := new(big.Int).Div(maxUint256, task.Difficulty)
-			go func(target, diff *big.Int, begin, end uint64) {
+			go func(target *big.Int, begin, end uint64) {
 				var i uint64
 				i = begin
+				diff := task.Difficulty
 				for {
 					// Identify task
-					if begin != task.NonceBegin || diff != task.Difficulty {
-						log.Debug("new task", "nonce begin", begin, "task nonce begin", task.NonceBegin)
+					if begin != task.NonceBegin || diff.Cmp(task.Difficulty) != 0 {
+						log.Info("go down", "nonce begin", begin, "task nonce begin", task.NonceBegin)
 						break
 					}
 					job <- &Job{target: target, powHash: &task.PowHash, nonce: i}
@@ -125,7 +128,7 @@ func gominer(ctx *cli.Context) error {
 						break
 					}
 				}
-			}(target, task.Difficulty, task.NonceBegin, task.NonceEnd)
+			}(target, task.NonceBegin, task.NonceEnd)
 		case result := <-found:
 			go func() {
 				task.Nonce = result
