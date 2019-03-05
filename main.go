@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/mattn/go-colorable"
 	"github.com/simplechain-org/gominer/client"
@@ -80,7 +81,8 @@ func gominer(ctx *cli.Context) error {
 	log.Info("CPU", "number", runtime.NumCPU(), "using", CPUs)
 
 	c := client.NewStratumClient(ctx.GlobalString(utils.StratumServer.Name), ctx.GlobalString(utils.MinerName.Name), ctx.GlobalString(utils.StratumPassword.Name))
-	c.Start()
+	agentCtx, cancel := context.WithCancel(context.Background())
+	c.Start(agentCtx, cancel)
 	threads := ctx.GlobalInt(utils.MinerThreads.Name)
 	if threads == 0 {
 		threads = runtime.NumCPU()
@@ -100,7 +102,7 @@ func gominer(ctx *cli.Context) error {
 	}
 
 	taskBegin = time.Now().UnixNano()
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(60 * time.Second)
 	for {
 		select {
 		case <-c.Down:
@@ -116,11 +118,12 @@ func gominer(ctx *cli.Context) error {
 			}
 		case task = <-c.TaskChan:
 			target := new(big.Int).Div(maxUint256, task.Difficulty)
-			go func(target *big.Int, begin, end uint64) {
+			go func(target, diff *big.Int, begin, end uint64) {
 				var i uint64
 				i = begin
 				for {
-					if begin != task.NonceBegin {
+					// Identify task
+					if begin != task.NonceBegin || diff != task.Difficulty {
 						log.Debug("new task", "nonce begin", begin, "task nonce begin", task.NonceBegin)
 						break
 					}
@@ -130,7 +133,7 @@ func gominer(ctx *cli.Context) error {
 						break
 					}
 				}
-			}(target, task.NonceBegin, task.NonceEnd)
+			}(target, task.Difficulty, task.NonceBegin, task.NonceEnd)
 		case result := <-found:
 			go func() {
 				task.Nonce = result
@@ -155,7 +158,7 @@ func doJob(job <-chan *Job, found chan uint64) {
 			if intResult.Cmp(j.target) <= 0 {
 				go func() {
 					found <- j.nonce
-					log.Debug("Nonce success", "diff", j.nonce)
+					//log.Info("doJob", "nonce", j.nonce,"pow", j.powHash)
 				}()
 			}
 			go func() {

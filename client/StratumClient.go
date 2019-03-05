@@ -64,8 +64,6 @@ type StratumClient struct {
 	receivedNonce chan *StratumTask
 	MinerName     string
 	minerPasswd   string
-	ctx           context.Context
-	ctxCancel     func()
 	closed        int64
 	Down          chan bool
 }
@@ -79,7 +77,6 @@ func NewStratumClient(address string, minerName string, passwd string) *StratumC
 		receivedNonce: make(chan *StratumTask, 100),
 		Down:          make(chan bool, 1),
 	}
-	c.ctx, c.ctxCancel = context.WithCancel(context.Background())
 	return c
 }
 
@@ -88,6 +85,8 @@ func (this *StratumClient) Connetion() {
 	for {
 		var err error
 		if this.conn, err = net.Dial("tcp", this.address); err == nil {
+			//deadline := time.Now().Add(30 * time.Second)
+			//this.conn.SetDeadline(deadline)
 			this.reader = bufio.NewReaderSize(this.conn, 1000)
 			subscribe := StratumRequest{Params: []interface{}{this.MinerName + "/pool.1.0.0", "Pool/1.0.0"}, Method: "mining.subscribe"}
 			log.Debug("Client send", "Msg", string(subscribe.Json()))
@@ -111,14 +110,19 @@ func (this *StratumClient) Connetion() {
 	log.Info("Client connected")
 }
 
-func (this *StratumClient) Start() {
+func (this *StratumClient) Start(ctx context.Context, cancel context.CancelFunc) {
 	this.Connetion()
-	go this.ReceiveMsg()
-	go this.SendNonce()
+	go this.ReceiveMsg(ctx, cancel)
+	go this.SendNonce(ctx, cancel)
 }
 
-func (this *StratumClient) ReceiveMsg() {
-	ctx, _ := context.WithCancel(this.ctx)
+func (this *StratumClient) ReceiveMsg(ctx context.Context, cancel context.CancelFunc) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Info("ReceiveMsg", "ReceiveMsg err", err)
+		}
+		this.Close(cancel)
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -129,7 +133,7 @@ func (this *StratumClient) ReceiveMsg() {
 				this.Connetion()
 			} else if isPrefix {
 				this.conn.Close()
-				time.Sleep(10 * time.Second)
+				time.Sleep(1 * time.Second)
 				this.Connetion()
 			} else {
 				var resp StratumResponse
@@ -141,7 +145,7 @@ func (this *StratumClient) ReceiveMsg() {
 							if len(resp.Params) >= 7 {
 								taskid, nonceBegin, nonceEnd, hash, diff, ok := GetTask(&resp)
 								if ok {
-									log.Info("ReceivedTask", "id", taskid, "diff", diff, "nonceBegin", nonceBegin, "nonceEnd", nonceEnd)
+									log.Info("ReceivedTask", "id", taskid, "diff", diff, "nonceBegin", nonceBegin, "nonceEnd", nonceEnd, "qj", nonceEnd-nonceBegin)
 									this.recentTaskId = taskid
 
 									this.TaskChan <- &StratumTask{
@@ -158,7 +162,7 @@ func (this *StratumClient) ReceiveMsg() {
 					case "mining.auth_error":
 						{
 							log.Warn("Auth_error", "Msg:", resp.Params[0].(string))
-							this.Close()
+							this.Close(cancel)
 						}
 					default:
 						{
@@ -167,6 +171,7 @@ func (this *StratumClient) ReceiveMsg() {
 					}
 				} else {
 					log.Info("ReceiveMsg", "Msg", err.Error())
+					this.Close(cancel)
 				}
 			}
 
@@ -181,13 +186,13 @@ func (this *StratumClient) SubmitTask(task *StratumTask) {
 	}
 }
 
-func (this *StratumClient) SendNonce() {
+func (this *StratumClient) SendNonce(ctx context.Context, cancel context.CancelFunc) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Info("SendNonce", "SendNonce err", err)
 		}
+		this.Close(cancel)
 	}()
-	ctx, _ := context.WithCancel(this.ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -207,7 +212,7 @@ func (this *StratumClient) SendNonce() {
 					if _, err := this.conn.Write(resp.Json()); err != nil {
 						log.Info("SendNonce", "err", err.Error())
 					} else {
-						log.Info("SendNonce success", "nonce", task.Nonce)
+						log.Info("SendNonce success", "nonce", task.Nonce, "diff", task.Difficulty)
 					}
 				}
 			}
@@ -254,11 +259,11 @@ func GetTask(resp *StratumResponse) (id interface{}, nonceBegin, nonceEnd uint64
 	return
 }
 
-func (this *StratumClient) Close() {
+func (this *StratumClient) Close(cancel context.CancelFunc) {
 	//delete once
 	if atomic.CompareAndSwapInt64(&this.closed, 0, 1) {
 		log.Info("Connection closed, client shutdown.", "MinerName", this.MinerName)
-		this.ctxCancel()
+		cancel()
 		this.conn.Close()
 		this.Down <- true
 	}
