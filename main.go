@@ -101,6 +101,27 @@ func gominer(ctx *cli.Context) error {
 		go doJob(job, found)
 	}
 
+	go func(taskChan chan *client.StratumTask) {
+		var target *big.Int
+		var begin, end uint64
+		var hash common.Hash
+		for {
+			select {
+			case task = <-taskChan:
+				target = new(big.Int).Div(maxUint256, task.Difficulty)
+				begin = task.NonceBegin
+				end = task.NonceEnd
+				hash = task.PowHash
+
+			default:
+				if end > 0 && begin < end {
+					job <- &Job{target: target, powHash: hash, nonce: begin}
+					begin++
+				}
+			}
+		}
+	}(c.TaskChan)
+
 	ticker := time.NewTicker(15 * time.Second)
 	for {
 		select {
@@ -110,37 +131,16 @@ func gominer(ctx *cli.Context) error {
 		case _ = <-ticker.C:
 			log.Info("Calculating ", "hashRate", meter.RateMean())
 			log.Debug("Buffered jobs", "length", len(job))
-		case task = <-c.TaskChan:
-			target := new(big.Int).Div(maxUint256, task.Difficulty)
-			go func(target *big.Int, begin, end uint64) {
-				var i uint64
-				i = begin
-				diff := task.Difficulty
-				for {
-					// Identify task
-					if begin != task.NonceBegin || diff.Cmp(task.Difficulty) != 0 {
-						log.Info("go down", "nonce begin", begin, "task nonce begin", task.NonceBegin)
-						break
-					}
-					job <- &Job{target: target, powHash: &task.PowHash, nonce: i}
-					i++
-					if i > end {
-						break
-					}
-				}
-			}(target, task.NonceBegin, task.NonceEnd)
 		case result := <-found:
-			go func() {
-				task.Nonce = result
-				c.SubmitTask(task)
-			}()
+			task.Nonce = result
+			c.SubmitTask(task)
 		}
 	}
 }
 
 type Job struct {
 	nonce   uint64
-	powHash *common.Hash
+	powHash common.Hash
 	target  *big.Int
 }
 
