@@ -146,7 +146,7 @@ func (this *StratumClient) ReceiveMsg(ctx context.Context, cancel context.Cancel
 							if len(resp.Params) >= 7 {
 								taskid, nonceBegin, nonceEnd, hash, diff, ok := GetTask(&resp)
 								if ok {
-									log.Info("ReceivedTask", "id", taskid, "diff", diff, "nonceBegin", nonceBegin, "nonceEnd", nonceEnd, "qj", nonceEnd-nonceBegin)
+									log.Info("ReceivedTask", "id", taskid, "diff", diff)
 									this.recentTaskId.Store(taskid)
 
 									this.TaskChan <- &StratumTask{
