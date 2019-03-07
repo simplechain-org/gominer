@@ -1,10 +1,11 @@
 package utils
 
 import (
-	"gopkg.in/urfave/cli.v1"
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"gopkg.in/urfave/cli.v1"
 )
 
 var (

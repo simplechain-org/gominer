@@ -4,15 +4,16 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"github.com/simplechain-org/gominer/common"
-	"github.com/simplechain-org/gominer/common/hexutil"
-	"github.com/simplechain-org/gominer/log"
 	"math/big"
 	"math/rand"
 	"net"
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	"github.com/simplechain-org/gominer/common"
+	"github.com/simplechain-org/gominer/common/hexutil"
+	"github.com/simplechain-org/gominer/log"
 )
 
 type StratumResponse struct {
@@ -60,7 +61,7 @@ type StratumClient struct {
 	conn          net.Conn
 	address       string
 	TaskChan      chan *StratumTask
-	recentTaskId  interface{}
+	recentTaskId  atomic.Value
 	receivedNonce chan *StratumTask
 	MinerName     string
 	minerPasswd   string
@@ -146,7 +147,7 @@ func (this *StratumClient) ReceiveMsg(ctx context.Context, cancel context.Cancel
 								taskid, nonceBegin, nonceEnd, hash, diff, ok := GetTask(&resp)
 								if ok {
 									log.Info("ReceivedTask", "id", taskid, "diff", diff, "nonceBegin", nonceBegin, "nonceEnd", nonceEnd, "qj", nonceEnd-nonceBegin)
-									this.recentTaskId = taskid
+									this.recentTaskId.Store(taskid)
 
 									this.TaskChan <- &StratumTask{
 										PowHash:    hash,
@@ -181,7 +182,7 @@ func (this *StratumClient) ReceiveMsg(ctx context.Context, cancel context.Cancel
 }
 
 func (this *StratumClient) SubmitTask(task *StratumTask) {
-	if this.recentTaskId != nil {
+	if this.recentTaskId.Load().(interface{}) != nil {
 		this.receivedNonce <- task
 	}
 }
@@ -200,7 +201,7 @@ func (this *StratumClient) SendNonce(ctx context.Context, cancel context.CancelF
 			return
 		case task := <-this.receivedNonce:
 			{
-				if task.Id == this.recentTaskId && task.Nonce != 0 && this.conn != nil {
+				if task.Id == this.recentTaskId.Load().(interface{}) && task.Nonce != 0 && this.conn != nil {
 					var resp StratumRequest
 					resp.Method = "mining.submit"
 					resp.Params = append(resp.Params, this.MinerName)

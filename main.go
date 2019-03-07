@@ -3,18 +3,21 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/mattn/go-colorable"
-	"github.com/rcrowley/go-metrics"
+	"math/big"
+	"os"
+	"runtime"
+	"sync/atomic"
+	"time"
+
 	"github.com/simplechain-org/gominer/client"
 	"github.com/simplechain-org/gominer/common"
 	"github.com/simplechain-org/gominer/log"
 	"github.com/simplechain-org/gominer/scrypt"
 	"github.com/simplechain-org/gominer/utils"
+
+	"github.com/mattn/go-colorable"
+	"github.com/rcrowley/go-metrics"
 	"gopkg.in/urfave/cli.v1"
-	"math/big"
-	"os"
-	"runtime"
-	"time"
 )
 
 var (
@@ -31,7 +34,7 @@ var (
 		utils.Verbosity,
 	}
 
-	task  *client.StratumTask
+	task  atomic.Value
 	job   = make(chan *Job, 100)
 	meter = metrics.NewMeter()
 )
@@ -107,11 +110,12 @@ func gominer(ctx *cli.Context) error {
 		var hash common.Hash
 		for {
 			select {
-			case task = <-taskChan:
-				target = new(big.Int).Div(maxUint256, task.Difficulty)
-				begin = task.NonceBegin
-				end = task.NonceEnd
-				hash = task.PowHash
+			case newtask := <-taskChan:
+				target = new(big.Int).Div(maxUint256, newtask.Difficulty)
+				begin = newtask.NonceBegin
+				end = newtask.NonceEnd
+				hash = newtask.PowHash
+				task.Store(newtask)
 
 			default:
 				if end > 0 && begin < end {
@@ -132,8 +136,16 @@ func gominer(ctx *cli.Context) error {
 			log.Info("Calculating ", "hashRate", meter.RateMean())
 			log.Debug("Buffered jobs", "length", len(job))
 		case result := <-found:
-			task.Nonce = result
-			c.SubmitTask(task)
+			//task.Nonce = result
+			submitTask := task.Load().(*client.StratumTask)
+			c.SubmitTask(&client.StratumTask{
+				submitTask.PowHash,
+				submitTask.Difficulty,
+				submitTask.Id,
+				submitTask.NonceBegin,
+				submitTask.NonceEnd,
+				result,
+			})
 		}
 	}
 }
